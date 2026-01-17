@@ -1,0 +1,271 @@
+Strict
+
+Import mojo2
+
+#If TARGET <> "html5"
+  Import brl.filestream
+#EndIf
+
+Class KeyValuePair
+Public
+  Field _isValid:Bool
+  Field _key:String
+  Field _value:String
+End Class
+
+Class IniHandler
+Private
+  Field _sections:StringMap<StringMap<String>>
+  Field _modified:StringMap<StringMap<String>>
+  Field _iniString:String
+  Field _path:String
+  
+Public
+  Method New()
+    _sections = New StringMap<StringMap<String>>()
+    _modified = New StringMap<StringMap<String>>()
+  End Method
+  
+  Method Open:Void(path:String)
+#If TARGET <> "html5"
+    _path = path
+    Local file:FileStream = FileStream.Open("cerberus://data/" + path, "r")
+    If file
+      _iniString = file.ReadString()
+      file.Close()
+    Else
+      Print "File '" + path + "' not found!"
+    End If
+#Else
+    _path = path
+    _iniString = LoadString(path)
+#EndIf
+    Refresh()
+  End Method
+  
+  Method DoesSectionExist:Bool(sectionName:String)
+    Return _sections.Contains(sectionName)
+  End Method
+  
+  Method DoesKeyExist:Bool(sectionName:String, key:String)
+    Local section:StringMap<String>
+    ' check if the section exists
+    If _sections.Contains(sectionName)
+      section = _sections.Get(sectionName)
+      Return section.Contains(key)
+    Else
+      Return False
+    End If
+  End Method
+  
+  Method ReadValue:String(sectionName:String, key:String, defaultValue:String, performLogging:Bool = True)
+    If Not _sections.Contains(sectionName)
+      Print "Section name '" + sectionName + "' not found in file '" + _path + "' for key '" + key + "', using default value: '" + defaultValue + "'."
+      Return defaultValue
+    End If
+    
+    Local section:StringMap<String>
+    section = _sections.Get(sectionName)
+    If Not section.Contains(key)
+      Print "Key '" + key + "' not found in section '" + sectionName + "' of file '" + _path + "', using default value: '" + defaultValue + "'."
+      Return defaultValue
+    End If
+    
+    Return section.Get(key)
+  End Method
+  
+  Method ReadValue:Int(sectionName:String, key:String, defaultValue:Int, performLogging:Bool = True)
+    Local str:String = ReadValue(sectionName, key, String(defaultValue), performLogging)
+    str = SplitComment(str)
+    Return Int(str)
+  End Method
+
+  Method ReadValue:Float(sectionName:String, key:String, defaultValue:Float, performLogging:Bool = True)
+    Local str:String = ReadValue(sectionName, key, String(defaultValue), performLogging)
+    str = SplitComment(str)
+    Return Float(str)
+  End Method
+  
+  Method ReadValue:Bool(sectionName:String, key:String, defaultValue:Bool, performLogging:Bool = True)
+    Local defaultStr:String = "False"
+    If defaultValue Then defaultStr = "True"
+    Local str:String = ReadValue(sectionName, key, defaultStr, performLogging)
+    str = SplitComment(str)
+    If str.ToLower() = "true"
+      Return True
+    Else
+      Return False
+    End If
+  End Method
+  
+  Method ReadArray:Int[](sectionName:String, key:String, defaultValue:Int[], performLogging:Bool = True)
+    Local defaultStr:String
+    For Local i:Int = 0 Until defaultValue.Length
+      defaultStr += String(defaultValue[i])
+      If i < defaultValue.Length - 1
+        defaultStr += ","
+      End If
+    Next
+    Local str:String = ReadValue(sectionName, key, defaultStr, performLogging)
+    str = SplitComment(str)
+    Local val:String[] = str.Split(",")
+    ' convert to int
+    Local valFinal:Int[] = New Int[val.Length]
+    For Local i:Int = 0 Until val.Length
+      valFinal[i] = Int(val[i])
+    Next
+    
+    Return valFinal
+  End Method
+
+  Method ReadArray:Float[](sectionName:String, key:String, defaultValue:Float[], performLogging:Bool = True)
+    Local defaultStr:String
+    For Local i:Int = 0 Until defaultValue.Length
+      defaultStr += String(defaultValue[i])
+      If i < defaultValue.Length - 1
+        defaultStr += ","
+      End If
+    Next
+    Local str:String = ReadValue(sectionName, key, defaultStr, performLogging)
+    str = SplitComment(str)
+    Local val:String[] = str.Split(",")
+    ' convert to float
+    Local valFinal:Float[] = New Float[val.Length]
+    For Local i:Int = 0 Until val.Length
+      valFinal[i] = Float(val[i])
+    Next
+    
+    Return valFinal
+  End Method
+  
+  Method ReadArray:Bool[](sectionName:String, key:String, defaultValue:Bool[], performLogging:Bool = True)
+    Local defaultStr:String
+    For Local i:Int = 0 Until defaultValue.Length
+      If defaultValue[i]
+        defaultStr += "True"
+      Else
+        defaultStr += "False"
+      End If
+      If i < defaultValue.Length - 1
+        defaultStr += ","
+      End If
+    Next
+    Local str:String = ReadValue(sectionName, key, defaultStr, performLogging)
+    str = SplitComment(str)
+    Local val:String[] = str.Split(",")
+    ' convert to bool
+    Local valFinal:Bool[] = New Bool[val.Length]
+    For Local i:Int = 0 Until val.Length
+      If val[i].ToLower() = "true"
+        valFinal[i] = True
+      Else
+        valFinal[i] = False
+      End If
+    Next
+    
+    Return valFinal
+  End Method
+  
+Private
+  Method Refresh:Void()
+    ' clear local cache
+    _sections.Clear()
+    _modified.Clear()
+    
+    Local currentSection:StringMap<String> = Null
+    Local sectionName:String
+
+    Local lines:String[] = _iniString.Trim().Split("~n")
+    For Local str:String = EachIn lines
+      ' remove possible "carriage return"
+      If str.EndsWith("~r")
+        str = str[..str.Length-1]
+      End If
+      
+      ' check for section names
+      sectionName = ParseSectionName(str)
+      If sectionName.Length > 0
+        ' only the first occurrence of a section is loaded
+        If _sections.Contains(sectionName)
+          currentSection = Null
+        Else
+          currentSection = New StringMap<String>()
+          _sections.Add(sectionName, currentSection)
+        End If
+      ElseIf currentSection <> Null
+        ' check for key+value pair
+        Local keyValuePair:KeyValuePair = ParseKeyValuePair(str)
+        If keyValuePair._isValid
+          ' only the first occurrence of a key is loaded
+          If Not currentSection.Contains(keyValuePair._key)
+            currentSection.Add(keyValuePair._key, keyValuePair._value)
+          End If
+        End If
+      End If
+      
+    Next
+  End Method
+  
+  Method SplitComment:String(str:String)
+    Local retStr:String[]
+    If str.Contains("//")
+      retStr = str.Split("//")
+    ElseIf str.Contains("#")
+      retStr = str.Split("#")
+    ElseIf str.Contains(";")
+      retStr = str.Split(";")
+    Else
+      retStr = New String[1]
+      retStr[0] = str
+    End If
+    
+    Return retStr[0].Trim()
+  End Method
+  
+  Method ParseSectionName:String(s:String)
+    If s.StartsWith("//") Or s.StartsWith("#") Or s.StartsWith(";") ' comment
+      Return ""
+    End If
+    If Not s.StartsWith("[")
+      Return ""
+    End If
+    If Not s.EndsWith("]")
+      Return ""
+    End If
+    If s.Length < 3
+      Return ""
+    End If
+    
+    Return s[1..s.Length-1]
+  End Method
+  
+  Method ParseKeyValuePair:KeyValuePair(s:String)
+    Local keyValuePair:KeyValuePair = New KeyValuePair()
+    If s.StartsWith("//") Or s.StartsWith("#") Or s.StartsWith(";") ' comment
+      keyValuePair._isValid = False
+      Return keyValuePair
+    End If
+    
+    Local i:Int = s.Find("=")
+    If i = 0
+      keyValuePair._isValid = False
+      Return keyValuePair
+    End If
+    
+    keyValuePair._key = s[0..i].Trim()
+    If keyValuePair._key.Length = 0
+      keyValuePair._isValid = False
+      Return keyValuePair
+    End If
+    
+    Local j:Int = s.Length - i - 1
+    If j > 0
+      keyValuePair._value = s[i+1..].Trim()
+    Else
+      keyValuePair._value = ""
+    End If
+    
+    keyValuePair._isValid = True
+    Return keyValuePair
+  End Method
+End Class

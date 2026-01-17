@@ -1,0 +1,43 @@
+Strict
+
+#TEXT_FILES += "*.ini"
+
+Import mojo2
+
+Import inihandler
+
+Class IniTest Extends App
+Public
+  Method OnCreate:Int()
+    Local ini:IniHandler = New IniHandler()
+    ini.Open("config.ini")
+    Print "TestString: '" + ini.ReadValue("General", "TestString", "default") + "'"
+    Print "TestFloat: '" + ini.ReadValue("General", "TestFloat", 1.0) + "'"
+    Print "TestInt: '" + ini.ReadValue("General", "TestInt", 1) + "'"
+    Local testBool:Bool = ini.ReadValue("General", "TestBool", False)
+    If testBool = True
+      Print "TestBool: 'True'"
+    Else
+      Print "TestBool: 'False'"
+    EndIf
+
+    Local iarr:Int[]   = ini.ReadArray("General", "IntArr", [1, 2, 3])
+    Local farr:Float[] = ini.ReadArray("General", "FloatArr", [1.0, 2.0, 3.0])
+    Local barr:Bool[]  = ini.ReadArray("General", "BoolArr", [True, False, True])
+
+    Return 0
+  End Method
+
+  Method OnUpdate:Int()
+    Return 0
+  End Method
+
+  Method OnRender:Int()
+    Return 0
+  End Method
+End Class
+
+Function Main:Int()
+  New IniTest()
+  Return 0
+End Function
